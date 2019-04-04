@@ -1,6 +1,5 @@
 
-pub use rowevents::reader::{ Reader };
-pub use rowevents::stream::{ Stream };
+pub use rowevents::reader::{ FileReader };
 pub use rowevents::parser::{ Parser };
 pub use rowevents::event_header::{ EventHeader };
 pub use rowevents::events::*;
@@ -14,19 +13,19 @@ extern crate chrono;
 extern crate regex;
 
 
-use std::ffi::{CString, CStr}; 
+use std::ffi::{CString, CStr};
 use std::os::raw::c_char;
 use std::ptr;
 use std::rc::Rc;
 
 #[no_mangle]
-pub extern fn binlog_reader_new(filename: *const c_char) -> *mut Reader {
+pub extern fn binlog_reader_new(filename: *const c_char) -> *mut FileReader {
     let c = unsafe {
         let cstr = CStr::from_ptr(filename);
         cstr.to_string_lossy().into_owned()
     };
-    
-    if let Ok(reader) = Reader::new(&c) {
+
+    if let Ok(reader) = FileReader::new(&c) {
         let p = Box::into_raw(Box::new(reader));
         p
     } else {
@@ -35,24 +34,24 @@ pub extern fn binlog_reader_new(filename: *const c_char) -> *mut Reader {
 }
 
 #[no_mangle]
-pub extern fn binlog_reader_free(ptr: *mut Reader) {
+pub extern fn binlog_reader_free(ptr: *mut FileReader) {
     if ptr.is_null() {
-        return 
+        return
     }
-    unsafe { 
+    unsafe {
         Box::from_raw(ptr);
     }
 }
 
 #[no_mangle]
-pub extern fn binlog_reader_read_event_header(ptr: *mut Reader, in_header: *mut EventHeader) -> bool {
+pub extern fn binlog_reader_read_event_header(ptr: *mut FileReader, in_header: *mut EventHeader) -> bool {
     let mut reader = unsafe {
         assert!(!ptr.is_null());
         &mut *ptr
     };
-    
+
     if let Ok(ref mut header) = reader.read_event_header() {
-        // Copy for avoid alloc too much heap-memory
+        // Copy to avoid alloc too much heap-memory
         unsafe {
             (*in_header).type_code = header.type_code;
             (*in_header).timestamp = header.timestamp;
@@ -74,7 +73,7 @@ pub extern fn binlog_reader_read_event_header(ptr: *mut Reader, in_header: *mut 
 pub struct EventInfo {
     pub type_code: u8,
     pub db_name_len: u32,
-    pub table_name_len: u32, 
+    pub table_name_len: u32,
     pub row_count: u32,
     pub col_count: u32
 }
@@ -87,21 +86,21 @@ pub struct FieldInfo {
     pub field_type: u32,
     pub field_len: u32,
     pub field_value: i64,
-    
+
 }
 
 #[no_mangle]
-pub extern fn binlog_reader_read_event(ptr: *mut Reader, header: *mut EventHeader) -> *mut Event {
+pub extern fn binlog_reader_read_event(ptr: *mut FileReader, header: *mut EventHeader) -> *mut Event {
     let mut reader = unsafe {
         assert!(!ptr.is_null());
         &mut *ptr
     };
-    
+
     let header = unsafe {
         assert!(!header.is_null());
         &mut *header
     };
-    
+
     if let Ok(event) = reader.read_event_detail(&header) {
         Box::into_raw(Box::new(event))
     } else {
@@ -123,7 +122,7 @@ pub extern fn binlog_reader_read_event_info(ptr: *mut Event, info: *mut EventInf
                 (*info).table_name_len = e.table_name.len() as u32;
             }
         },
-        
+
         &Event::Insert(ref e) => {
             unsafe {
                 (*info).row_count = e.entry.len() as u32;
@@ -156,7 +155,7 @@ pub extern fn binlog_reader_read_event_info(ptr: *mut Event, info: *mut EventInf
 
 fn read_event_rows(entry_vec: &Vec<Vec<ValueType>>, content: &mut [FieldInfo]) -> bool {
     let mut index = 0;
-    
+
     for entry in entry_vec {
         for v in entry {
 
@@ -216,7 +215,7 @@ fn read_event_rows(entry_vec: &Vec<Vec<ValueType>>, content: &mut [FieldInfo]) -
                     content[index].field_len = 0;
                     content[index].field_value = i as i64;
                 },
-                
+
                 &ValueType::Null => {
                     content[index].field_type = FieldType::Null as u32;
                     content[index].field_len = 0;
@@ -229,7 +228,7 @@ fn read_event_rows(entry_vec: &Vec<Vec<ValueType>>, content: &mut [FieldInfo]) -
 
             index += 1;
         }
-        
+
     }
     // println!("********** index, {}", index);
     true
@@ -271,7 +270,7 @@ fn free_event_rows(entry_vec: &Vec<Vec<ValueType>>, content: &mut [FieldInfo]) -
 
             index += 1;
         }
-        
+
     }
     // println!("********** index, {}", index);
     true
@@ -298,13 +297,13 @@ pub extern fn binlog_reader_read_table_map_event(ptr: *mut Event, info: *mut Eve
 
 #[no_mangle]
 pub extern fn binlog_reader_read_delete_event_rows(ptr: *mut Event, info: *mut EventInfo, content: &mut [FieldInfo]) -> bool {
-    
+
     true
 }
 
 #[no_mangle]
 pub extern fn binlog_reader_read_insert_event_rows(ptr: *mut Event, info: *mut EventInfo, content: &mut [FieldInfo]) -> bool {
-    
+
     true
 }
 
@@ -314,12 +313,12 @@ pub extern fn binlog_reader_read_rows_event_content(ptr: *mut Event, info: *mut 
         let size = ((*info).row_count * (*info).col_count) as usize;
         std::slice::from_raw_parts_mut(content, size)
     };
-    
+
     let event = unsafe {
         assert!(!ptr.is_null());
         &*ptr
     };
-    
+
     match event {
         &Event::Update(ref e) => {
             if new_entry {
@@ -338,7 +337,7 @@ pub extern fn binlog_reader_read_rows_event_content(ptr: *mut Event, info: *mut 
             assert!(false);
         }
     }
-    
+
     true
 }
 
@@ -348,12 +347,12 @@ pub extern fn binlog_reader_free_rows_event_content(ptr: *mut Event, info: *mut 
         let size = ((*info).row_count * (*info).col_count) as usize;
         std::slice::from_raw_parts_mut(content, size)
     };
-    
+
     let event = unsafe {
         assert!(!ptr.is_null());
         &*ptr
     };
-    
+
     match event {
         &Event::Update(ref e) => {
             // entry1 and entry2 have same row * column numbers

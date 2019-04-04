@@ -1,29 +1,37 @@
 
 use rowevents::parser::Parser;
-use rowevents::stream::Stream;
+use rowevents::stream::FileStream;
 use rowevents::event_header::EventHeader;
 use rowevents::events::*;
-use std::io::Result;
-use std::io::{Error, ErrorKind};
+use std::io::{Error, ErrorKind, Result, Read};
 extern crate regex;
 use regex::Regex;
 
-pub struct Reader {
+
+// T: BinlogReader
+
+// -- FileReader  ---+
+//                   | ---- Parser
+// -- SocketReader --+
+
+// rename to file reader
+
+// create socket reader
+
+pub struct FileReader {
     filename: String,
-    parser: Parser,
+    parser: Parser<FileStream>,
     skip_next_event: bool,
     concerned_events: Vec<i8>,
     excluded_db_table_list: Vec<Regex>,
 }
 
-impl Reader {
-    
-    pub fn new(filename: &str) -> Result<Reader> {
-        
-        if let Some(stream) = Stream::from_file(filename) {
+impl FileReader {
+    pub fn new(filename: &str) -> Result<FileReader> {
+        if let Some(stream) = FileStream::from_file(filename) {
             let mut parser = Parser::new(stream);
-            parser.read_binlog_file_header();
-            Ok(Reader{
+            parser.get_mut().read_binlog_file_header();
+            Ok(FileReader{
                 filename: filename.to_string(),
                 parser: parser,
                 skip_next_event: false,
@@ -36,10 +44,10 @@ impl Reader {
     }
 
     pub fn open_next_binlog_file(&mut self) -> bool {
-        self.parser.read_next_binlog_file();
-        self.parser.read_binlog_file_header()
+        self.parser.get_mut().read_next_binlog_file();
+        self.parser.get_mut().read_binlog_file_header()
     }
-    
+
     #[inline]
     pub fn add_concerned_event(&mut self, event_type: i8) {
         self.concerned_events.push(event_type);
@@ -95,7 +103,7 @@ impl Reader {
                 }
 
                 Ok((eh, e))
-                
+
             } else {
                 Err(Error::new(ErrorKind::Other, "oh no!"))
             }
@@ -110,7 +118,7 @@ impl Reader {
     }
 
     pub fn read_event_detail(&mut self, eh: &EventHeader) -> Result<Event> {
-        
+
         match eh.get_event_type() {
             QUERY_EVENT => self.parser.read_query_event(eh),
 
@@ -151,7 +159,7 @@ impl Reader {
     }
 }
 
-impl Iterator for Reader {
+impl Iterator for FileReader {
     type Item = (EventHeader, Event);
 
     // next() is the only required method

@@ -1,18 +1,19 @@
-
 use std::fs::File;
-use std::io::BufReader;
-use std::io::prelude::*;
 use std::option::Option;
-use std::process;
-use std::io::Result;
-use std::io::{Error, ErrorKind};
+use std::io::{Result, Error, ErrorKind, Read};
 
-pub struct Stream {
+pub struct FileStream {
     filename: String,
     file: Option<File>,
     content: Vec<u8>,
     offset: usize,
     counter: usize,
+}
+
+impl Read for FileStream {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        Ok(1)
+    }
 }
 
 
@@ -25,18 +26,31 @@ fn get_next_binlog_filename(filename: &String) -> Option<String> {
         Some(next)
     } else {
         None
-    }   
+    }
 }
 
-impl Stream {
+impl FileStream {
 
-    pub fn from_file(filename: &str) -> Option<Stream> {
+    pub fn read_binlog_file_header(&mut self) -> bool {
+        if let Some(ref mut file) = self.file {
+            std::io::copy(&mut file.take(4), &mut std::io::sink()).is_ok()
+        } else {
+            false
+        }
+    }
+
+    // pub fn read_next_binlog_file(&mut self) -> bool {
+    //     self.reader.read_next_binlog_file();
+    //     true
+    // }
+
+    pub fn from_file(filename: &str) -> Option<FileStream> {
         let mut result = File::open(filename);
         if let Ok(mut file) = result {
-            Some(Stream {
+            Some(FileStream {
                 filename: filename.to_string(),
-                file: Some(file), 
-                content: vec![], 
+                file: Some(file),
+                content: vec![],
                 offset: 0,
                 counter: 0
                 })
@@ -54,10 +68,10 @@ impl Stream {
                 self.file = Some(file);
                 self.content = vec![];
                 self.offset = 0;
-            }   
+            }
         }
     }
-     
+
     pub fn read(&mut self, size: usize) -> &[u8] {
         let mut from = self.offset;
         if from + size >= self.content.len() {
