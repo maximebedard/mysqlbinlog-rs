@@ -55,10 +55,10 @@ fn main() {
     let config = parse_config(&config_file).unwrap();
     println!("{:?}", config.filter);
 
-    let reader = reader::Reader::new(&binlog_file);
+    let reader = reader::FileReader::new(&binlog_file);
     if let Ok(mut r) = reader {
         r.add_excluded_db_table("antares.*");
-        
+
         while let Some((eh, e)) = r.next() {
             if r.skip_next_event() {
                 continue;
@@ -70,8 +70,8 @@ fn main() {
                 Event::Unknown | _ => {  },
             }
         }
-        
+
         print!("End");
     }
-    
+
 }

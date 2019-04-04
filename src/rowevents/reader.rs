@@ -18,8 +18,11 @@ use regex::Regex;
 
 // create socket reader
 
+pub trait EventReader {
+    fn read_event(&mut self) -> Result<(EventHeader, Event)>;
+}
+
 pub struct FileReader {
-    filename: String,
     parser: Parser<FileStream>,
     skip_next_event: bool,
     concerned_events: Vec<i8>,
@@ -32,7 +35,6 @@ impl FileReader {
             let mut parser = Parser::new(stream);
             parser.get_mut().read_binlog_file_header();
             Ok(FileReader{
-                filename: filename.to_string(),
                 parser: parser,
                 skip_next_event: false,
                 concerned_events: Vec::with_capacity(20),
@@ -74,51 +76,12 @@ impl FileReader {
         return false;
     }
 
-    // ????
-    pub fn read_event(&mut self) -> Result<(EventHeader, Event)> {
-        if let Ok(eh) = self.read_event_header() {
-
-            if self.skip_next_event || !self.is_concerned_event(eh.get_event_type()) {
-                if let Ok(e) = self.read_unknown_event(&eh) {
-                    // Recover from skip
-                    self.set_skip_next_event(false);
-                    Ok((eh, e))
-                } else {
-                    Err(Error::new(ErrorKind::Other, "oh no!"))
-                }
-            } else if let Ok(e) = self.read_event_detail(&eh) {
-                match e {
-                    Event::TableMap(ref e) => {
-                        if self.is_excluded(&e.db_name, &e.table_name) {
-                            // println!("Excluded {}.{}", e.db_name, e.table_name);
-                            self.set_skip_next_event(true);
-                        }
-                    },
-
-                    Event::Rotate(ref e) => {
-                        println!("Open next binlog file...");
-                        self.open_next_binlog_file();
-                    },
-                    _ => ()
-                }
-
-                Ok((eh, e))
-
-            } else {
-                Err(Error::new(ErrorKind::Other, "oh no!"))
-            }
-        } else {
-            Err(Error::new(ErrorKind::Other, "oh no!"))
-        }
-    }
-
     #[inline]
     pub fn read_event_header(&mut self) -> Result<EventHeader> {
         self.parser.read_event_header()
     }
 
     pub fn read_event_detail(&mut self, eh: &EventHeader) -> Result<Event> {
-
         match eh.get_event_type() {
             QUERY_EVENT => self.parser.read_query_event(eh),
 
@@ -159,16 +122,51 @@ impl FileReader {
     }
 }
 
+impl EventReader for FileReader {
+    fn read_event(&mut self) -> Result<(EventHeader, Event)> {
+        if let Ok(eh) = self.read_event_header() {
+
+            if self.skip_next_event || !self.is_concerned_event(eh.get_event_type()) {
+                if let Ok(e) = self.read_unknown_event(&eh) {
+                    // Recover from skip
+                    self.set_skip_next_event(false);
+                    Ok((eh, e))
+                } else {
+                    Err(Error::new(ErrorKind::Other, "oh no!"))
+                }
+            } else if let Ok(e) = self.read_event_detail(&eh) {
+                match e {
+                    Event::TableMap(ref e) => {
+                        if self.is_excluded(&e.db_name, &e.table_name) {
+                            // println!("Excluded {}.{}", e.db_name, e.table_name);
+                            self.set_skip_next_event(true);
+                        }
+                    },
+
+                    Event::Rotate(ref e) => {
+                        println!("Open next binlog file...");
+                        self.open_next_binlog_file();
+                    },
+                    _ => ()
+                }
+
+                Ok((eh, e))
+
+            } else {
+                Err(Error::new(ErrorKind::Other, "oh no!"))
+            }
+        } else {
+            Err(Error::new(ErrorKind::Other, "oh no!"))
+        }
+    }
+}
+
 impl Iterator for FileReader {
     type Item = (EventHeader, Event);
 
     // next() is the only required method
     fn next(&mut self) -> Option<(EventHeader, Event)> {
-        if let Ok((eh, e)) = self.read_event() {
-            Some((eh, e))
-        } else {
-            None
-        }
+        self.read_event().ok()
     }
 }
 
